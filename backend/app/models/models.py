@@ -192,6 +192,8 @@ class UserBaseline(Base):
     std_deviation: Mapped[float] = mapped_column(Float, nullable=False)
     calculated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    user = relationship("User", back_populates="baselines")
+
 
 # ===========================================================================
 # NEXTAUTH TABLES
