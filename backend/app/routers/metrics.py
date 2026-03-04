@@ -62,10 +62,13 @@ def create_metrics(
         stmt = stmt.on_conflict_do_update(
             constraint="uq_health_metrics_user_date_type",
             set_={"value": entry.value, "source_id": entry.source_id},
-        ).returning(HealthMetric.__table__)
+        ).returning(HealthMetric)
 
-        row = db.execute(stmt).fetchone()
+        row = db.execute(stmt).scalars().first()
         results.append(row)
 
     db.commit()
+    # Refresh all objects so relationships and server defaults are loaded
+    for row in results:
+        db.refresh(row)
     return results

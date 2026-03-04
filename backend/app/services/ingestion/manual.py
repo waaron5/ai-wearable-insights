@@ -7,7 +7,6 @@ It exists so the ingestion interface is consistent across all source types.
 import uuid
 from datetime import date
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.models import HealthMetric

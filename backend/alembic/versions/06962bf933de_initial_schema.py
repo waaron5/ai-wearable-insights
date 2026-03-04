@@ -159,6 +159,7 @@ def upgrade() -> None:
         sa.Column('calculated_at', sa.DateTime, server_default=sa.func.now()),
     )
     op.create_index('ix_user_baselines_user_metric', 'user_baselines', ['user_id', 'metric_type'])
+    op.create_unique_constraint('uq_user_baselines_user_metric', 'user_baselines', ['user_id', 'metric_type'])
 
 
 def downgrade() -> None:

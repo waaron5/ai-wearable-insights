@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from typing import Annotated
 
@@ -17,7 +18,7 @@ def get_current_user_id(
     All auth extraction lives here. Routers depend only on this function —
     no direct header parsing elsewhere.
     """
-    if x_api_key != settings.API_SECRET_KEY:
+    if not secrets.compare_digest(x_api_key, settings.API_SECRET_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key",

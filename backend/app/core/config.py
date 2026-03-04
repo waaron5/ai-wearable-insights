@@ -6,8 +6,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
 
-    # AI
-    ANTHROPIC_API_KEY: str = ""
+    # AI (Vertex AI — HIPAA-eligible with GCP BAA)
+    GCP_PROJECT_ID: str = ""
+    GCP_LOCATION: str = "us-central1"
+    AI_PROVIDER: str = "vertexai"
+    AI_MODEL: str = "gemini-2.0-flash"
 
     # Email
     RESEND_API_KEY: str = ""

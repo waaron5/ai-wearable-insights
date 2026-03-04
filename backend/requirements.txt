@@ -15,8 +15,8 @@ pydantic-settings==2.7.1
 # Auth
 # (API key verification only — no JWT on backend for MVP)
 
-# AI
-anthropic==0.42.0
+# AI (Vertex AI — HIPAA-eligible with GCP BAA)
+google-cloud-aiplatform==1.74.0
 
 # Email
 resend==2.5.0

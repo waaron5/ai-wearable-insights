@@ -1,7 +1,5 @@
 """Shared schema utilities — pagination params and paginated response wrapper."""
 
-import uuid
-from datetime import date, datetime
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field

@@ -10,7 +10,7 @@ SQLAlchemy ORM models — all 11 tables.
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -41,7 +41,7 @@ def _uuid() -> uuid.UUID:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 # ===========================================================================
@@ -182,6 +182,7 @@ class DebriefFeedback(Base):
 class UserBaseline(Base):
     __tablename__ = "user_baselines"
     __table_args__ = (
+        UniqueConstraint("user_id", "metric_type", name="uq_user_baselines_user_metric"),
         Index("ix_user_baselines_user_metric", "user_id", "metric_type"),
     )
 
