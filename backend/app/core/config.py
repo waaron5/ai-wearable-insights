@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # AI (Vertex AI — HIPAA-eligible with GCP BAA)
     GCP_PROJECT_ID: str = ""
     GCP_LOCATION: str = "us-central1"
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
     AI_PROVIDER: str = "vertexai"
     AI_MODEL: str = "gemini-2.0-flash"
 
