@@ -103,21 +103,31 @@ export default function OnboardingWizard() {
   const [dataConsent, setDataConsent] = useState(false);
   const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
   const [surveyAnswers, setSurveyAnswers] = useState<Record<string, string>>({});
+  const [surveyLoading, setSurveyLoading] = useState(false);
+  const [surveyLoaded, setSurveyLoaded] = useState(false);
   const [seedDemo, setSeedDemo] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
 
   // Load survey questions when entering survey step
   useEffect(() => {
-    if (step === 3 && dataConsent && surveyQuestions.length === 0) {
-      api
-        .getSurveyQuestions()
-        .then(setSurveyQuestions)
-        .catch(() => {
+    if (step === 3 && dataConsent && !surveyLoaded) {
+      const loadSurveyQuestions = async () => {
+        setSurveyLoading(true);
+        try {
+          const questions = await api.getSurveyQuestions();
+          setSurveyQuestions(questions);
+        } catch {
           // If no questions available, that's OK — skip survey
-        });
+        } finally {
+          setSurveyLoading(false);
+          setSurveyLoaded(true);
+        }
+      };
+
+      void loadSurveyQuestions();
     }
-  }, [step, dataConsent, surveyQuestions.length]);
+  }, [step, dataConsent, surveyLoaded]);
 
   const progress = ((step + 1) / TOTAL_STEPS) * 100;
 
@@ -392,10 +402,14 @@ export default function OnboardingWizard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {surveyQuestions.length === 0 ? (
+              {surveyLoading || !surveyLoaded ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
+              ) : surveyQuestions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">
+                  No survey questions are available right now. You can continue.
+                </p>
               ) : (
                 <div className="space-y-5">
                   {surveyQuestions.map((q, idx) => (
