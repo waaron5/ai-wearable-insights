@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.models.models import DataSource, HealthMetric, User
+from app.models.models import DataSource, HealthMetric, SurveyQuestion, User
 from app.services.baseline_service import calculate_baselines
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,69 @@ SEED_USERS = [
 ]
 
 METRIC_TYPES = ["sleep_hours", "hrv", "resting_hr", "steps"]
+
+# ---------------------------------------------------------------------------
+# Initial survey questions
+# ---------------------------------------------------------------------------
+
+SEED_SURVEY_QUESTIONS = [
+    {
+        "category": "sleep",
+        "question_text": "How would you describe your typical sleep quality?",
+        "response_type": "single_choice",
+        "options": {"choices": ["Poor", "Fair", "Good", "Excellent"]},
+        "display_order": 1,
+    },
+    {
+        "category": "sleep",
+        "question_text": "How consistent is your bedtime (within 30 minutes) on most nights?",
+        "response_type": "single_choice",
+        "options": {"choices": ["Rarely", "Sometimes", "Usually", "Always"]},
+        "display_order": 2,
+    },
+    {
+        "category": "exercise",
+        "question_text": "How many days per week do you typically exercise for at least 30 minutes?",
+        "response_type": "single_choice",
+        "options": {"choices": ["0", "1-2", "3-4", "5+"]},
+        "display_order": 3,
+    },
+    {
+        "category": "exercise",
+        "question_text": "What best describes your typical exercise intensity?",
+        "response_type": "single_choice",
+        "options": {"choices": ["Light (walking, stretching)", "Moderate (jogging, cycling)", "Vigorous (running, HIIT, heavy weights)", "Mixed"]},
+        "display_order": 4,
+    },
+    {
+        "category": "diet",
+        "question_text": "How would you rate the overall quality of your diet?",
+        "response_type": "single_choice",
+        "options": {"choices": ["Poor", "Fair", "Good", "Excellent"]},
+        "display_order": 5,
+    },
+    {
+        "category": "diet",
+        "question_text": "How many servings of fruits and vegetables do you eat on a typical day?",
+        "response_type": "single_choice",
+        "options": {"choices": ["0-1", "2-3", "4-5", "6+"]},
+        "display_order": 6,
+    },
+    {
+        "category": "stress",
+        "question_text": "How would you rate your average daily stress level?",
+        "response_type": "single_choice",
+        "options": {"choices": ["Low", "Moderate", "High", "Very high"]},
+        "display_order": 7,
+    },
+    {
+        "category": "lifestyle",
+        "question_text": "How many alcoholic drinks do you have in a typical week?",
+        "response_type": "single_choice",
+        "options": {"choices": ["0", "1-3", "4-7", "8+"]},
+        "display_order": 8,
+    },
+]
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +214,8 @@ def run_seed():
     """Create 3 test users with 90 days of data each. Idempotent — skips existing users."""
     db = SessionLocal()
     try:
+        seed_survey_questions(db)
+
         for user_data in SEED_USERS:
             # Skip if user already exists
             existing = db.query(User).filter(User.id == user_data["id"]).first()
@@ -194,3 +259,30 @@ def run_seed():
 
 if __name__ == "__main__":
     run_seed()
+
+
+# ---------------------------------------------------------------------------
+# Survey questions seeder (also used standalone)
+# ---------------------------------------------------------------------------
+
+def seed_survey_questions(db: Session | None = None) -> int:
+    """Insert initial survey questions if none exist. Returns count inserted."""
+    close = False
+    if db is None:
+        db = SessionLocal()
+        close = True
+    try:
+        existing = db.query(SurveyQuestion).count()
+        if existing > 0:
+            print(f"  Survey questions already seeded ({existing} found) — skipping")
+            return 0
+
+        for q in SEED_SURVEY_QUESTIONS:
+            db.add(SurveyQuestion(**q))
+
+        db.commit()
+        print(f"  Seeded {len(SEED_SURVEY_QUESTIONS)} survey questions")
+        return len(SEED_SURVEY_QUESTIONS)
+    finally:
+        if close:
+            db.close()
