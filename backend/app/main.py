@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.routers import baselines, chat, debriefs, metrics, onboarding, sources, users
+from app.routers import baselines, chat, debriefs, metrics, onboarding, sources, surveys, users
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 
@@ -23,6 +23,7 @@ app.include_router(baselines.router)
 app.include_router(onboarding.router)
 app.include_router(debriefs.router)
 app.include_router(chat.router)
+app.include_router(surveys.router)
 
 
 @app.get("/health")

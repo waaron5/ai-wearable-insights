@@ -14,6 +14,8 @@ class UserResponse(BaseModel):
     notification_email: str | None
     email_notifications_enabled: bool
     onboarded_at: datetime | None
+    data_sharing_consent: bool
+    data_sharing_consented_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

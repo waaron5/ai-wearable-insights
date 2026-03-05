@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Auth – shared secret with Next.js proxy
     API_SECRET_KEY: str
 
+    # Anonymous data lake – HMAC secret for de-identifying user IDs
+    # MUST be kept separate from API_SECRET_KEY; rotate carefully (changes all profile IDs)
+    ANONYMOUS_ID_SECRET: str = ""
+
     # Frontend URL (for email links, CORS if ever needed)
     FRONTEND_URL: str = "http://localhost:3000"
 

@@ -15,6 +15,8 @@ The shortcuts below are intentional for MVP speed, and each includes scaffolding
 | Backend trust boundary | FastAPI trusts proxy headers plus shared `API_SECRET_KEY` | Keep all backend auth extraction in `core/auth.py` and expose a single user-context dependency to routers | Swap to signed service-to-service JWT (or mTLS) with minimal router changes |
 | Scheduler | In-process APScheduler in FastAPI app | Keep scheduler as a thin trigger layer; keep debrief generation logic in service function callable from any worker | Move to external cron + queue/worker execution model |
 | Data ingestion | Manual/demo data source only | Use `DataSourceAdapter` abstraction and `data_sources` table from day 1 | Add Apple/Whoop/Oura/Fitbit adapters behind same interface |
+| Anonymous data lake | De-identified weekly aggregates + survey answers; HMAC-based profile IDs | `anonymous_profiles`, `anonymous_health_data`, `anonymous_survey_data` tables + `anonymous_data_service.py` from day 1; consent gate on users table | Scale lake to dedicated analytics DB or data warehouse; build aggregate insights API |
+| Health surveys | Static seed questions; onboarding + periodic check-in contexts | `survey_questions` + `survey_responses` tables; `surveys` router; question catalog extensible via DB inserts | Add adaptive survey logic, A/B test question sets, ML-driven question selection |
 | Chat transport | Non-streaming responses only | Keep chat API wrapper and UI state transport-agnostic | Add streaming (SSE/WebSocket) without rewriting chat persistence |
 | Rate limiting | DB-count query, no Redis | Keep rate-limit check in one service boundary | Replace implementation with Redis/token bucket if throughput needs it |
 | Type constraints | VARCHAR for `source_type` / `metric_type` (no DB ENUM) | Centralize validation in schemas/services | Add DB-level CHECK/ENUM constraints if needed, without contract changes |
@@ -32,7 +34,8 @@ Health metrics linked to a user — even via a UUID — constitute **Protected H
 
 | Component | Touches PHI? | BAA Required? | MVP Status | Production Path |
 |---|---|---|---|---|
-| PostgreSQL (health_metrics, user_baselines, weekly_debriefs, chat_messages) | Yes — stores all user health data | Yes | Railway Postgres (no BAA) | GCP Cloud SQL or AWS RDS (BAA available) |
+| PostgreSQL (health_metrics, user_baselines, weekly_debriefs, chat_messages, survey_responses) | Yes — stores all user health data | Yes | Railway Postgres (no BAA) | GCP Cloud SQL or AWS RDS (BAA available) |
+| PostgreSQL (anonymous_profiles, anonymous_health_data, anonymous_survey_data) | **No** — de-identified via HIPAA Safe Harbor method (weekly aggregates, no PII, HMAC-derived IDs) | No (if properly de-identified) | Same DB for MVP | Separate analytics DB/warehouse for scale |
 | FastAPI backend | Yes — reads/writes PHI via ORM | Yes (hosting) | Railway (no BAA) | GCP Cloud Run or AWS ECS (BAA available) |
 | AI provider (Vertex AI) | Yes — receives de-identified health summaries | Yes | **Vertex AI (BAA available via GCP)** | Already compliant |
 | Resend (email) | Yes — debrief email contains health summary | Yes | Resend (check BAA availability) | Switch to SES (AWS BAA) or GCP-based mail if needed |
@@ -68,6 +71,8 @@ The `pii_scrubber.py` module enforces a strict de-identification boundary:
 3. **Never send PII to the AI provider.** The `pii_scrubber` is a mandatory pipeline step, not optional.
 4. **Never expose bulk PHI.** All API endpoints are scoped to the authenticated user. No admin bulk-export endpoints in MVP.
 5. **Never include PHI in error responses.** Exception handlers must sanitize before returning.
+6. **Never store PII in the anonymous data lake.** The `anonymous_profiles`, `anonymous_health_data`, and `anonymous_survey_data` tables must contain zero PII — no names, emails, timezones, or any field that could identify a user. The only link is the HMAC-derived anonymous profile ID, which is irreversible without the `ANONYMOUS_ID_SECRET`.
+7. **Anonymous lake stores only weekly aggregates.** Raw daily health values are never written to the anonymous tables. Only statistical summaries (avg, min, max, std_dev, sample_count) per metric per week.
 
 ## Tech Stack
 
@@ -134,6 +139,7 @@ AI_PROVIDER=vertexai
 AI_MODEL=gemini-2.0-flash
 RESEND_API_KEY=re_...
 API_SECRET_KEY=shared-secret-between-nextjs-and-fastapi
+ANONYMOUS_ID_SECRET=separate-secret-for-hmac-de-identification
 FRONTEND_URL=http://localhost:3000
 
 # Frontend (.env.local in /frontend)
@@ -148,7 +154,7 @@ API_SECRET_KEY=shared-secret-between-nextjs-and-fastapi
 
 ## Database Schema
 
-8 app tables + 3 NextAuth tables (accounts, sessions, verification_tokens) = 11 total. All managed by Alembic. All IDs are UUID. All tables have `created_at TIMESTAMP`. Use VARCHAR (not ENUM) for all type fields — validated at the application level.
+8 app tables + 5 anonymous/survey tables + 3 NextAuth tables (accounts, sessions, verification_tokens) = 16 total. All managed by Alembic. All IDs are UUID. All tables have `created_at TIMESTAMP`. Use VARCHAR (not ENUM) for all type fields — validated at the application level.
 
 ### `users`
 | Column | Type | Notes |
@@ -162,6 +168,8 @@ API_SECRET_KEY=shared-secret-between-nextjs-and-fastapi
 | timezone | VARCHAR | Default `America/New_York` — set during onboarding |
 | notification_email | VARCHAR | Nullable, defaults to email if unset |
 | email_notifications_enabled | BOOLEAN | Default true |
+| data_sharing_consent | BOOLEAN | Default false — explicit opt-in for anonymous data lake |
+| data_sharing_consented_at | TIMESTAMP | Set when consent is granted, cleared when revoked |
 | onboarded_at | TIMESTAMP | Null until onboarding complete |
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
@@ -262,6 +270,74 @@ MVP only uses `manual` source type.
 **Indexes:**
 - `(user_id, metric_type)` — fast lookup during debrief generation
 
+### `survey_questions`
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| category | VARCHAR | `diet`, `exercise`, `sleep`, `stress`, `lifestyle` |
+| question_text | TEXT | The question displayed to the user |
+| response_type | VARCHAR | `scale`, `single_choice`, `multi_choice`, `free_text` |
+| options | JSONB | For choice-type questions, e.g. `{"choices": ["Never","Sometimes","Often","Always"]}` |
+| display_order | INTEGER | Controls question ordering in the UI |
+| is_active | BOOLEAN | Default true — soft-delete for retired questions |
+| created_at | TIMESTAMP | |
+
+### `survey_responses`
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| user_id | UUID | FK -> users |
+| question_id | UUID | FK -> survey_questions |
+| response_value | TEXT | The user's answer |
+| survey_context | VARCHAR | `onboarding` or `periodic_checkin` |
+| responded_at | TIMESTAMP | |
+
+**Indexes:**
+- `(user_id, question_id)` — fast lookup for user's answers
+
+### `anonymous_profiles`
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK — HMAC-SHA256(user_id, ANONYMOUS_ID_SECRET) truncated to UUID. **No FK to users.** |
+| demographic_bucket | VARCHAR | Optional coarse bucket, e.g. `"30-39_M"` |
+| created_at | TIMESTAMP | |
+| updated_at | TIMESTAMP | |
+
+This table has **no foreign key** to `users`. The connection exists only via a one-way HMAC derivation at runtime. Without the `ANONYMOUS_ID_SECRET`, the mapping is irreversible.
+
+### `anonymous_survey_data`
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| anonymous_profile_id | UUID | FK -> anonymous_profiles |
+| question_id | UUID | FK -> survey_questions |
+| response_value | TEXT | De-identified copy of the user's answer |
+| collected_at | TIMESTAMP | |
+
+**Indexes:**
+- `(anonymous_profile_id, question_id)` — lookup by profile
+
+### `anonymous_health_data`
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| anonymous_profile_id | UUID | FK -> anonymous_profiles |
+| metric_type | VARCHAR | `sleep_hours`, `hrv`, `resting_hr`, `steps` |
+| period_start | DATE | Always a Monday (weekly granularity only) |
+| period_end | DATE | Always the following Sunday |
+| avg_value | FLOAT | Weekly average |
+| min_value | FLOAT | Weekly minimum |
+| max_value | FLOAT | Weekly maximum |
+| std_deviation | FLOAT | Weekly standard deviation |
+| sample_count | INTEGER | Days with data (0-7) |
+| collected_at | TIMESTAMP | |
+
+**Constraints & Indexes:**
+- `(anonymous_profile_id, metric_type, period_start)` — unique constraint; prevents duplicate snapshots
+- `(anonymous_profile_id, period_start)` — index for range queries
+
+**Key design rule:** Only weekly statistical summaries are stored — never raw daily values. This reduces re-identification risk per the HIPAA Safe Harbor de-identification standard.
+
 ---
 
 ## Backend (FastAPI)
@@ -276,7 +352,8 @@ backend/
 │   │   ├── sources.py       # GET/POST data sources
 │   │   ├── users.py         # GET/PATCH /users/me
 │   │   ├── baselines.py     # GET /baselines
-│   │   └── onboarding.py    # POST /onboarding/seed-demo
+│   │   ├── onboarding.py    # POST /onboarding/seed-demo
+│   │   └── surveys.py       # GET questions, POST responses, PATCH consent
 │   ├── services/
 │   │   ├── ai/
 │   │   │   ├── base.py              # Abstract HealthAIService interface
@@ -289,6 +366,7 @@ backend/
 │   │   ├── chat_service.py          # Orchestrator: emergency check → context → AI → filter → store
 │   │   ├── notification_service.py  # Resend email delivery
 │   │   ├── baseline_service.py      # Rolling 30-day avg + std deviation calc
+│   │   ├── anonymous_data_service.py # HMAC de-identification + anonymous lake writes
 │   │   └── ingestion/
 │   │       ├── base.py              # Abstract DataSourceAdapter interface
 │   │       └── manual.py            # Manual/seed data adapter
@@ -530,6 +608,58 @@ Return {answer, citations, disclaimer}
 - **Max tokens:** Capped at a provider-appropriate limit (e.g., 1024 for debrief, 512 for chat) to control cost and prevent runaway responses.
 - **Temperature:** Low (0.3–0.4) for debriefs (consistency), moderate (0.5–0.6) for chat (conversational).
 
+### Anonymous Data Lake & Health Surveys (Moat Architecture)
+
+#### Problem: Health Data Is the Moat, But It Must Be HIPAA-Safe
+
+Anyone can build AI that analyzes wearable data. The competitive advantage is having a growing corpus of anonymized health data coupled with self-reported user context (diet, exercise, sleep habits, stress levels). This corpus — the "data lake" — enables population-level insights, benchmarking, and eventually ML models that no competitor can replicate without the same data volume.
+
+However, the data lake MUST be de-identified per HIPAA Safe Harbor to avoid creating a second PHI store that requires its own BAA chain. The architecture below ensures the lake contains zero PII and only statistical aggregates.
+
+#### De-identification Strategy: HMAC Safe Harbor
+
+- **One-way HMAC mapping:** `HMAC-SHA256(user_id, ANONYMOUS_ID_SECRET)` → `anonymous_profile_id` (UUID). The `ANONYMOUS_ID_SECRET` is a separate env var, never shared with any other system. The same user always maps to the same profile (for longitudinal tracking), but the mapping is irreversible without the secret.
+- **No foreign key to users:** The `anonymous_profiles` table has NO FK to `users`. The link exists only as a runtime HMAC computation in `anonymous_data_service.py`.
+- **Weekly aggregates only:** The anonymous health data stores only `(avg, min, max, std_deviation, sample_count)` per metric per week. Raw daily values never enter the lake.
+- **No PII in lake tables:** No names, emails, timezones, IP addresses, or device IDs. Only the opaque HMAC-derived UUID + coarse optional demographic bucket (e.g., `"30-39_M"`).
+- **Explicit opt-in consent:** Users must grant `data_sharing_consent` before any data flows to the lake. Revoking consent stops future writes but does not retroactively delete anonymous data (since it's already de-identified and unlinkable without the secret).
+
+#### Survey System
+
+Health habit surveys provide the qualitative context that makes wearable data uniquely valuable:
+
+- **Onboarding survey:** 5-8 questions about diet, exercise, sleep habits, stress, etc. Presented during the onboarding flow after timezone selection.
+- **Periodic check-ins:** Every ~4 weeks (triggered after debrief generation), users are prompted to update their health habits. This captures lifestyle changes over time.
+- **Question catalog:** Stored in `survey_questions` table. Questions are extensible via DB inserts — no code changes needed to add/modify questions.
+- **Dual storage:** User answers are stored in `survey_responses` (linked to user_id for personalization) AND copied de-identified to `anonymous_survey_data` (linked to anonymous profile, if consented).
+
+#### Data Flow: Anonymous Lake
+
+```
+Debrief generation completes
+    ↓
+Check user.data_sharing_consent == true
+    ↓ (if consented)
+anonymous_data_service.snapshot_weekly_health_data()
+    ↓ derive HMAC anonymous_profile_id
+    ↓ aggregate week's health_metrics → (avg, min, max, std_dev, sample_count)
+    ↓ upsert into anonymous_health_data (idempotent on profile+metric+period)
+anonymous data lake (de-identified, no PII)
+```
+
+```
+User submits survey answers (onboarding or check-in)
+    ↓
+Store in survey_responses (linked to user_id)
+    ↓
+Check user.data_sharing_consent == true
+    ↓ (if consented)
+anonymous_data_service.copy_survey_to_anonymous_lake()
+    ↓ derive HMAC anonymous_profile_id
+    ↓ copy answers without PII to anonymous_survey_data
+anonymous data lake (de-identified, no PII)
+```
+
 ### API Endpoints
 
 All endpoints receive `X-User-Id` and `X-API-Key` headers from the Next.js proxy. All list endpoints accept `limit` (default 20, max 100) and `offset` (default 0) query params and return `{items: [...], total: int}`.
@@ -564,6 +694,12 @@ All endpoints receive `X-User-Id` and `X-API-Key` headers from the Next.js proxy
 
 **Onboarding:**
 - `POST /onboarding/seed-demo` — generates 90 days of demo health data for the authenticated user, creates a `manual` data source, calculates baselines, and generates one sample debrief. Called during the onboarding flow when user selects "start with demo data."
+
+**Surveys:**
+- `GET /surveys/questions?category=&context=` — returns active survey questions, optionally filtered by category
+- `POST /surveys/responses` — submit a batch of survey answers (body: `{answers: [{question_id, response_value}], survey_context: "onboarding"|"periodic_checkin"}`). If user has data-sharing consent, answers are also copied (de-identified) to the anonymous data lake.
+- `GET /surveys/responses?survey_context=` — returns the authenticated user's survey responses
+- `PATCH /surveys/consent` — update the user's anonymous data-sharing consent (body: `{data_sharing_consent: true|false}`)
 
 ### Debrief Generation Pipeline
 
@@ -730,6 +866,8 @@ frontend/
 **Onboarding** (shown once, before `onboarded_at` is set):
 - Welcome step: brief explanation of VitalView
 - Timezone selection (auto-detected, user can override)
+- Data sharing consent: explain the anonymous data lake and ask for opt-in ("Help improve health insights for everyone"). Clear, non-coercive language. Users can skip without penalty.
+- Health habit survey (if consented): 5-8 questions about diet, exercise, sleep, stress. Calls `POST /surveys/responses` with `survey_context: "onboarding"`.
 - Demo data option: seed user with sample data so app isn't empty
 - Confirmation: "Your first debrief arrives Sunday" with countdown
 
@@ -756,6 +894,7 @@ frontend/
 **Settings:**
 - Timezone preference
 - Email notification on/off
+- Data sharing consent toggle (on/off) with clear explanation of what's shared and how it's anonymized
 - Connected data sources list ("coming soon" badges for unimplemented)
 - Current baseline values per metric with trend indicators
 - Account management (NextAuth)
@@ -793,36 +932,41 @@ frontend/
 - [ ] `routers/baselines.py`: GET /baselines
 - [ ] Verify: seed data, query metrics, view baselines, update user settings all work via Swagger docs
 
-### Week 2 — AI Layer + Safety + Notifications
+### Week 2 — AI Layer + Safety + Notifications + Anonymous Data Lake
 - [ ] `services/ai/base.py`: Abstract `HealthAIService` interface with `generate_debrief()` and `chat_response()` methods
 - [ ] `services/ai/gemini_service.py`: Gemini Flash via Vertex AI implementation of `HealthAIService` (BAA-eligible)
 - [ ] `services/ai/factory.py`: Provider factory returning correct implementation based on `AI_PROVIDER` env var
 - [ ] `services/metrics_engine.py`: Deterministic code engine — z-scores, percent deltas, week-over-week trends, composite scores (Recovery/Sleep/Activity), notable day detection
 - [ ] `services/pii_scrubber.py`: Strip name, email, all PII from AI payloads — only `user_id` UUID passes through
 - [ ] `services/safety_guardrails.py`: Pre-LLM emergency keyword detector (bypass AI, return hardcoded emergency response) + post-LLM diagnosis stripper (pattern match + blocked phrases) + mandatory disclaimer injection
-- [ ] `services/debrief_service.py`: Full pipeline orchestrator (query data → metrics engine → PII scrub → AI call → post-filter → store final JSON only)
+- [ ] `services/debrief_service.py`: Full pipeline orchestrator (query data → metrics engine → PII scrub → AI call → post-filter → store final JSON only → anonymous health data snapshot)
 - [ ] `routers/debriefs.py`: GET list, GET current, GET weekly-summary (deterministic engine output, no AI), POST trigger, POST feedback
 - [ ] `scheduler.py`: APScheduler hourly interval job — scans for users due for Sunday 9 PM debrief per their timezone
 - [ ] `debrief_service` idempotency: enforce one debrief per `(user_id, week_start)` and safe status transitions for retries
 - [ ] `services/notification_service.py`: Resend email integration
 - [ ] `templates/debrief_email.html`: Jinja2 email template (summary + CTA link + disclaimer + unsubscribe)
-- [ ] Full pipeline test: trigger → engine → AI → filter → store → email → status update
+- [ ] Full pipeline test: trigger → engine → AI → filter → store → email → status update → anonymous snapshot
 - [ ] `services/chat_service.py`: Orchestrator with emergency check → context builder → PII scrub → AI call → post-filter → store
 - [ ] `routers/chat.py`: sessions CRUD + POST message endpoint (returns `{answer, citations, disclaimer}` or `{emergency: true, message, hotlines}`)
 - [ ] Chat context builder: summarized engine output + baselines + latest debrief (~800 tokens, no raw data)
 - [ ] DB-based rate limiting (20 messages/day) via a replaceable rate-limit service boundary
-- [ ] Verify: trigger debrief via API, receive email, chat with health-aware AI, emergency keywords bypass AI correctly, post-filter strips diagnoses
+- [ ] Alembic migration for survey + anonymous data lake tables (`survey_questions`, `survey_responses`, `anonymous_profiles`, `anonymous_survey_data`, `anonymous_health_data`) + `data_sharing_consent`/`data_sharing_consented_at` columns on users
+- [ ] `services/anonymous_data_service.py`: HMAC-based anonymous profile derivation, survey-to-lake copy, weekly health data snapshot (integrated into debrief pipeline)
+- [ ] `routers/surveys.py`: GET /surveys/questions, POST /surveys/responses (with automatic anonymous lake copy if consented), GET /surveys/responses, PATCH /surveys/consent
+- [ ] `schemas/surveys.py`: Pydantic schemas for survey questions, answers, consent
+- [ ] Seed initial survey questions into `survey_questions` table (5-8 health habit questions covering diet, exercise, sleep, stress)
+- [ ] Verify: trigger debrief via API, receive email, anonymous health data snapshot written (if consented), survey flow works end-to-end, chat with health-aware AI, emergency keywords bypass AI correctly, post-filter strips diagnoses
 
 ### Week 3 — Frontend
 - [ ] Next.js project init: Tailwind + shadcn/ui + dark mode + theme provider
 - [ ] NextAuth config: Credentials provider (email/password), `@auth/pg-adapter`, JWT session strategy, custom `jwt`/`session` callbacks exposing `user.id`, custom `authorize()` with bcrypt verify, custom `/api/auth/signup` route with bcrypt hash, login/signup pages, protected routes
 - [ ] API proxy: single catch-all route `/app/api/[...path]/route.ts` forwarding to FastAPI with `X-User-Id` + `X-API-Key` headers
 - [ ] `lib/api.ts`: typed fetch wrapper
-- [ ] Onboarding flow: welcome → timezone → demo data (calls `POST /onboarding/seed-demo`) → redirect to dashboard
+- [ ] Onboarding flow: welcome → timezone → data sharing consent → health habit survey (if consented) → demo data (calls `POST /onboarding/seed-demo`) → redirect to dashboard
 - [ ] Dashboard: debrief card + feedback + sparklines + highlights + empty state
 - [ ] Chat: session list + message interface + starters + rate limit display
 - [ ] History: debrief feed + expand/collapse + date filter
-- [ ] Settings: timezone, email prefs (calls `PATCH /users/me`), sources, baselines (calls `GET /baselines`), account
+- [ ] Settings: timezone, email prefs (calls `PATCH /users/me`), data sharing consent toggle (calls `PATCH /surveys/consent`), sources, baselines (calls `GET /baselines`), account
 - [ ] Nav component with dark mode toggle
 - [ ] Loading skeletons + empty states on all screens
 - [ ] Mobile responsive pass

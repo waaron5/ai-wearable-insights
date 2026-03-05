@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import User, WeeklyDebrief
 from app.services.ai.factory import get_ai_service
+from app.services.anonymous_data_service import snapshot_weekly_health_data
 from app.services.metrics_engine import compute_weekly_summary
 from app.services.pii_scrubber import scrub_for_ai
 from app.services.safety_guardrails import DISCLAIMER, post_filter
@@ -157,6 +158,16 @@ async def generate_weekly_debrief(
         db.flush()
 
         logger.info("Debrief %s generated successfully", debrief.id)
+
+        # Anonymous data lake: snapshot this week's wearable aggregates
+        # (no-op if user has not consented to data sharing)
+        try:
+            snapshot_weekly_health_data(db, user_id, week_start, week_end)
+        except Exception:
+            logger.exception(
+                "Anonymous health snapshot failed for user %s — non-blocking",
+                user_id,
+            )
 
         # Steps 10–11: email notification
         if send_email:

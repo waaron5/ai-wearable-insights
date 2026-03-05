@@ -1,9 +1,10 @@
-"""
-SQLAlchemy ORM models — all 11 tables.
+"""SQLAlchemy ORM models -- all 16 tables.
 
-8 app tables:
+13 app tables:
   users, data_sources, health_metrics, weekly_debriefs,
-  chat_sessions, chat_messages, debrief_feedback, user_baselines
+  chat_sessions, chat_messages, debrief_feedback, user_baselines,
+  survey_questions, survey_responses,
+  anonymous_profiles, anonymous_survey_data, anonymous_health_data
 
 3 NextAuth tables:
   accounts, sessions, verification_tokens
@@ -67,6 +68,10 @@ class User(Base):
     email_notifications_enabled: Mapped[bool] = mapped_column(Boolean, server_default="true")
     onboarded_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Anonymous data sharing consent
+    data_sharing_consent: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    data_sharing_consented_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=_now)
 
@@ -76,6 +81,7 @@ class User(Base):
     weekly_debriefs = relationship("WeeklyDebrief", back_populates="user", cascade="all, delete-orphan")
     chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     baselines = relationship("UserBaseline", back_populates="user", cascade="all, delete-orphan")
+    survey_responses = relationship("SurveyResponse", back_populates="user", cascade="all, delete-orphan")
 
 
 class DataSource(Base):
@@ -172,7 +178,7 @@ class DebriefFeedback(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     debrief_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("weekly_debriefs.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1–5
+    rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1-5
     comment: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -197,12 +203,113 @@ class UserBaseline(Base):
 
 
 # ===========================================================================
+# SURVEY & ANONYMOUS DATA LAKE TABLES
+# ===========================================================================
+
+
+class SurveyQuestion(Base):
+    """Catalog of health-habit questions presented during onboarding and
+    periodic check-ins."""
+    __tablename__ = "survey_questions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)  # diet, exercise, sleep, stress, lifestyle
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    response_type: Mapped[str] = mapped_column(String(30), nullable=False)  # scale, single_choice, multi_choice, free_text
+    options: Mapped[dict | None] = mapped_column(JSONB)  # e.g. {"choices": ["Never","Sometimes","Often","Always"]}
+    display_order: Mapped[int] = mapped_column(Integer, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    responses = relationship("SurveyResponse", back_populates="question")
+
+
+class SurveyResponse(Base):
+    """User answers to survey questions -- linked to user for personalisation."""
+    __tablename__ = "survey_responses"
+    __table_args__ = (
+        Index("ix_survey_responses_user_question", "user_id", "question_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_questions.id", ondelete="CASCADE"), nullable=False)
+    response_value: Mapped[str] = mapped_column(Text, nullable=False)
+    survey_context: Mapped[str] = mapped_column(String(30), nullable=False)  # onboarding, periodic_checkin
+    responded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user = relationship("User", back_populates="survey_responses")
+    question = relationship("SurveyQuestion", back_populates="responses")
+
+
+class AnonymousProfile(Base):
+    """De-identified profile in the anonymous data lake.
+
+    The ``id`` is derived at runtime via HMAC-SHA256(user_id, ANONYMOUS_ID_SECRET).
+    There is **no foreign key** to the ``users`` table -- the mapping is
+    one-way and irreversible without the server secret.
+    """
+    __tablename__ = "anonymous_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    demographic_bucket: Mapped[str | None] = mapped_column(String(30))  # e.g. "30-39_M" -- optional
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=_now)
+
+    survey_data = relationship("AnonymousSurveyData", back_populates="profile", cascade="all, delete-orphan")
+    health_data = relationship("AnonymousHealthData", back_populates="profile", cascade="all, delete-orphan")
+
+
+class AnonymousSurveyData(Base):
+    """De-identified survey answers in the anonymous data lake."""
+    __tablename__ = "anonymous_survey_data"
+    __table_args__ = (
+        Index("ix_anon_survey_profile_question", "anonymous_profile_id", "question_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    anonymous_profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("anonymous_profiles.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_questions.id", ondelete="CASCADE"), nullable=False)
+    response_value: Mapped[str] = mapped_column(Text, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    profile = relationship("AnonymousProfile", back_populates="survey_data")
+
+
+class AnonymousHealthData(Base):
+    """Weekly-aggregated wearable data in the anonymous data lake.
+
+    Only statistical summaries are stored -- never raw daily values.
+    This reduces re-identification risk per HIPAA Safe Harbor."""
+    __tablename__ = "anonymous_health_data"
+    __table_args__ = (
+        UniqueConstraint("anonymous_profile_id", "metric_type", "period_start",
+                         name="uq_anon_health_profile_metric_period"),
+        Index("ix_anon_health_profile_period", "anonymous_profile_id", "period_start"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    anonymous_profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("anonymous_profiles.id", ondelete="CASCADE"), nullable=False)
+    metric_type: Mapped[str] = mapped_column(String(50), nullable=False)  # sleep_hours, hrv, resting_hr, steps
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)  # always a Monday
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)    # always the following Sunday
+    avg_value: Mapped[float] = mapped_column(Float, nullable=False)
+    min_value: Mapped[float] = mapped_column(Float, nullable=False)
+    max_value: Mapped[float] = mapped_column(Float, nullable=False)
+    std_deviation: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False)  # days with data (0-7)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    profile = relationship("AnonymousProfile", back_populates="health_data")
+
+
+# ===========================================================================
 # NEXTAUTH TABLES
 # ===========================================================================
 
 
 class NextAuthAccount(Base):
-    """NextAuth `accounts` table — matches @auth/pg-adapter schema."""
+    """NextAuth `accounts` table -- matches @auth/pg-adapter schema."""
     __tablename__ = "accounts"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
@@ -220,7 +327,7 @@ class NextAuthAccount(Base):
 
 
 class NextAuthSession(Base):
-    """NextAuth `sessions` table — matches @auth/pg-adapter schema."""
+    """NextAuth `sessions` table -- matches @auth/pg-adapter schema."""
     __tablename__ = "sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
@@ -230,7 +337,7 @@ class NextAuthSession(Base):
 
 
 class NextAuthVerificationToken(Base):
-    """NextAuth `verification_tokens` table — matches @auth/pg-adapter schema."""
+    """NextAuth `verification_tokens` table -- matches @auth/pg-adapter schema."""
     __tablename__ = "verification_tokens"
 
     identifier: Mapped[str] = mapped_column(String(255), primary_key=True)
