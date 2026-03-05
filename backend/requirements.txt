@@ -19,7 +19,7 @@ pydantic-settings==2.7.1
 google-cloud-aiplatform==1.74.0
 
 # Email
-resend==2.5.0
+resend==2.5.1
 
 # Scheduling
 apscheduler==3.10.4
