@@ -1,33 +1,35 @@
 /**
- * Home screen — placeholder until Phase 3 dashboard is built.
+ * Root index — redirects based on auth state.
+ * The AuthProvider handles navigation guards, so this just shows
+ * a loading screen while the auth state is being determined.
  */
 
-import { StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, View, StyleSheet } from "react-native";
+import { useAuth } from "../components/auth-provider";
+import { useThemeColors } from "../hooks/useThemeColors";
 
-export default function HomeScreen() {
+export default function IndexScreen() {
+  const { loading } = useAuth();
+  const colors = useThemeColors();
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  // AuthProvider handles routing — this screen is a brief flash
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>VitalView</Text>
-      <Text style={styles.subtitle}>iOS app coming soon</Text>
-    </View>
+    <View style={[styles.container, { backgroundColor: colors.background }]} />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0f766e",
     alignItems: "center",
     justifyContent: "center",
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#ffffff",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#ccfbf1",
   },
 });

@@ -1,18 +1,29 @@
 /**
  * Root layout — expo-router entry point.
  *
- * This will eventually house the AuthProvider, theme provider,
- * and navigation guards. For now, it renders the slot (child routes).
+ * Houses the AuthProvider and navigation guards.
+ * Delegates routing to child groups: (auth), (app), onboarding.
  */
 
+import { useEffect } from "react";
 import { Slot } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { AuthProvider } from "../components/auth-provider";
+import { registerBackgroundSync } from "../services/healthkit-background";
 
 export default function RootLayout() {
+  useEffect(() => {
+    // Register background HealthKit sync on app start
+    registerBackgroundSync().catch(console.warn);
+  }, []);
+
   return (
-    <>
-      <StatusBar style="auto" />
-      <Slot />
-    </>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <StatusBar style="auto" />
+        <Slot />
+      </AuthProvider>
+    </GestureHandlerRootView>
   );
 }
