@@ -58,6 +58,9 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255))
     hashed_password: Mapped[str | None] = mapped_column(String(255))
 
+    # Apple Sign-In
+    apple_user_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+
     # NextAuth-managed columns
     emailVerified: Mapped[datetime | None] = mapped_column("emailVerified", DateTime)
     image: Mapped[str | None] = mapped_column(String(2048))
@@ -82,6 +85,22 @@ class User(Base):
     chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     baselines = relationship("UserBaseline", back_populates="user", cascade="all, delete-orphan")
     survey_responses = relationship("SurveyResponse", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+
+
+class RefreshToken(Base):
+    """Tracks issued refresh tokens. Stores a SHA-256 hash of the token
+    so the DB never holds a usable secret."""
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # SHA-256 hex
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user = relationship("User", back_populates="refresh_tokens")
 
 
 class DataSource(Base):

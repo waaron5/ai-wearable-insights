@@ -16,8 +16,17 @@ class Settings(BaseSettings):
     # Email
     RESEND_API_KEY: str = ""
 
-    # Auth – shared secret with Next.js proxy
-    API_SECRET_KEY: str
+    # Auth – shared secret with Next.js proxy (legacy, kept for backward compat)
+    API_SECRET_KEY: str = ""
+
+    # JWT auth (primary auth for mobile app)
+    JWT_SECRET_KEY: str = "change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # Apple Sign-In
+    APPLE_BUNDLE_ID: str = "com.vitalview.app"
 
     # Anonymous data lake – HMAC secret for de-identifying user IDs
     # MUST be kept separate from API_SECRET_KEY; rotate carefully (changes all profile IDs)

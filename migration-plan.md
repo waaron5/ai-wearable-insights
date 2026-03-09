@@ -77,31 +77,63 @@ React Native iOS App
 
 These are steps that require developer accounts, physical devices, or Apple portal actions that an AI agent cannot perform.
 
-### 1. Apple Developer Account
+### 1. Apple ID Setup (Free — For Initial Development)
 
-- [ ] Enroll in the [Apple Developer Program](https://developer.apple.com/programs/) ($99/year) — required to distribute on the App Store and access HealthKit entitlements
-- [ ] Set up your Apple ID in Xcode → Preferences → Accounts
+You do **not** need a paid Apple Developer account ($99/year) to build and run the app on your iPhone. A **free Apple ID** ("Personal Team" in Xcode) is sufficient for initial development. Xcode auto-manages code signing.
 
-### 2. Xcode & Development Environment
+**What works with a free Apple ID:**
+- ✅ Build and install the app on your iPhone via USB (`npx expo run:ios --device`)
+- ✅ All screens: auth, dashboard, chat, history, settings, onboarding
+- ✅ Backend API integration (JWT auth, debriefs, metrics, etc.)
+- ✅ Seed/demo data for testing without real wearable data
+- ✅ Dark mode, haptics, navigation, all UI components
+- ✅ Hot reload via Expo dev client
+
+**What requires the paid Apple Developer Program ($99/year) — deferred until you're ready:**
+- ❌ HealthKit (reading wearable data from Apple Watch/Health app)
+- ❌ Push Notifications (APNs for debrief alerts)
+- ❌ Sign in with Apple
+- ❌ TestFlight / App Store distribution
+- ❌ EAS cloud builds with ad-hoc provisioning
+
+> The code for HealthKit, APNs, and Sign in with Apple will be **built during migration** so everything is ready — but these features will be **dormant** until you enroll in the paid program and configure the entitlements. The app gracefully falls back to seed data and email/password auth in the meantime.
+
+**Limitations of free signing:**
+- Apps expire after **7 days** and must be re-installed (just re-run `npx expo run:ios --device`)
+- Maximum of **3 apps** simultaneously installed on your device via free signing
+- No distribution to other devices (your iPhone only)
+
+**Setup:**
+- [ ] Sign into your Apple ID in Xcode → Settings → Accounts → Add Apple ID
+- [ ] When Xcode prompts to select a team, choose your **Personal Team** (your Apple ID name)
+- [ ] Xcode will auto-manage signing and create a free provisioning profile
+
+### 2. Paid Apple Developer Account (Later — When Ready for HealthKit/APNs/App Store)
+
+When you're satisfied with the core app and ready to enable HealthKit + push notifications:
+
+- [ ] Enroll in the [Apple Developer Program](https://developer.apple.com/programs/) ($99/year)
+- [ ] Create an App ID in the Apple Developer Portal with capabilities: **HealthKit**, **Push Notifications**, **Sign in with Apple**
+- [ ] Update the `bundleIdentifier` in `app.config.ts` to match the registered App ID
+- [ ] Create a provisioning profile (Development) tied to this App ID
+- [ ] Generate an APNs authentication key (`.p8` file) in the Apple Developer Portal → Keys section. Save the Key ID, Team ID, and `.p8` file
+- [ ] Rebuild the app: `npx expo prebuild --clean --platform ios && npx expo run:ios --device`
+- [ ] HealthKit, APNs, and Sign in with Apple will now work on-device
+
+### 3. Xcode & Development Environment
 
 - [ ] Install Xcode (latest stable) from the Mac App Store
 - [ ] Install Xcode Command Line Tools: `xcode-select --install`
-- [ ] Install CocoaPods: `sudo gem install cocoapods` (needed for native iOS dependencies)
+- [ ] Install CocoaPods via Homebrew: `brew install cocoapods` (needed for native iOS dependencies — avoid `sudo gem install cocoapods` which often breaks on Apple Silicon Macs due to Ruby version conflicts)
 - [ ] Ensure you have Node.js 18+ and the Expo CLI: `npx expo --version`
+- [ ] Ensure Watchman is installed: `brew install watchman` (used by Metro bundler for fast file watching)
 
-### 3. Apple Developer Portal Configuration
+### 4. HealthKit Entitlements & Privacy (Requires Paid Developer Account)
 
-- [ ] Create an App ID in the Apple Developer Portal with the following capabilities enabled:
-  - **HealthKit** (required for reading wearable data)
-  - **Push Notifications** (required for APNs debrief alerts)
-  - **Sign in with Apple** (optional, but recommended for iOS apps — Apple may reject apps without it if they offer third-party login)
-- [ ] Create a provisioning profile (Development + Distribution) tied to this App ID
-- [ ] Generate an APNs authentication key (`.p8` file) in the Apple Developer Portal → Keys → Create a Key with "Apple Push Notifications service (APNs)" enabled. Save the Key ID, Team ID, and `.p8` file — these are needed for the backend to send push notifications
-
-### 4. HealthKit Entitlements & Privacy
+> **Skip this section until you enroll in the paid Apple Developer Program.** The code will be written during migration, but the entitlements won't activate until you have a paid account and a properly configured App ID.
 
 - [ ] In the Xcode project (after Expo prebuild), verify the HealthKit entitlement is present in the `.entitlements` file
-- [ ] Write the required `NSHealthShareUsageDescription` and `NSHealthUpdateUsageDescription` privacy strings for `Info.plist` (Expo config handles this, but review the wording — Apple rejects vague descriptions)
+- [ ] Review the `NSHealthShareUsageDescription` and `NSHealthUpdateUsageDescription` privacy strings in `app.config.ts` (Apple rejects vague descriptions)
 - [ ] HealthKit data types to request read access for:
   - `HKQuantityTypeIdentifierStepCount`
   - `HKQuantityTypeIdentifierHeartRateVariabilitySDNN`
@@ -122,17 +154,213 @@ These are steps that require developer accounts, physical devices, or Apple port
 
 ### 6. Expo / EAS Setup
 
+> **⚠️ Critical: Expo Go will NOT work for this project.** `react-native-health` (HealthKit) is a custom native module that Expo Go's sandbox cannot load. You must use an **Expo development build** — a custom `.app` built via `npx expo run:ios --device` (local Xcode build) or EAS cloud build — for all development and testing.
+
+**For initial development (free Apple ID, local builds):**
+- [ ] Install `expo-dev-client` in the mobile project: `npx expo install expo-dev-client`
+  - This turns the app into a custom development build that supports arbitrary native modules. It replaces Expo Go entirely.
+- [ ] Build locally: `npx expo prebuild --platform ios && npx expo run:ios --device` — this uses Xcode with your free Personal Team to sign and install on your iPhone. No EAS account needed.
+
+**For later (paid developer account, cloud builds, distribution):**
 - [ ] Create an Expo account at [expo.dev](https://expo.dev) if you don't have one
 - [ ] Install EAS CLI: `npm install -g eas-cli`
 - [ ] Run `eas login` and `eas build:configure` in the project
 - [ ] Link your Apple Developer account in EAS for automated code signing
-- [ ] Configure EAS Build profiles (development, preview, production) in `eas.json`
+- [ ] Create `eas.json` with the following build profiles:
 
-### 7. Physical Device Testing
+```json
+{
+  "cli": {
+    "version": ">= 7.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    },
+    "production": {
+      "distribution": "store"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
+```
 
-- [ ] Register your test iPhone's UDID in the Apple Developer Portal (or use EAS to manage ad-hoc provisioning)
-- [ ] For HealthKit testing: wear an Apple Watch for at least a week before testing to have real data, or manually enter sample data in the iOS Health app
-- [ ] Test push notifications on a physical device (simulator does not support APNs)
+  - **`development`** — Debug build with dev menu and fast refresh. Distributed directly to registered devices (no App Store). Used during active development.
+  - **`preview`** — Release-mode build distributed internally via EAS (ad-hoc provisioning). No dev menu. Used for realistic end-to-end testing.
+  - **`production`** — App Store / TestFlight build.
+
+### 7. Installing on iPhone Without the App Store
+
+There are three ways to get the app onto your iPhone for testing — none require an App Store submission or App Store review.
+
+#### Option A — Local Build via Xcode (Recommended — Works With Free Apple ID)
+
+This is the **recommended option for solo development** — builds directly from your Mac to your iPhone via USB, no cloud build wait time, no paid developer account required.
+
+1. Connect your iPhone to your Mac via USB (or configure wireless debugging in Xcode → Window → Devices and Simulators)
+2. Ensure your iPhone is registered as a development device in Xcode (Xcode auto-prompts to trust the device)
+3. When prompted for a signing team, select your **Personal Team** (free Apple ID)
+4. Generate the native iOS project:
+   ```bash
+   cd mobile
+   npx expo prebuild --platform ios
+   ```
+5. Build and install directly on your iPhone:
+   ```bash
+   npx expo run:ios --device
+   ```
+   Expo/Xcode will compile the native code (~2-5 min on first build, incremental builds much faster) and install directly on your phone. This includes `expo-dev-client` and all native modules. HealthKit entitlements will be included in the code but won't activate until you have a paid developer account.
+6. Start the local dev server:
+   ```bash
+   npx expo start --dev-client
+   ```
+7. The app on your iPhone connects to the Metro dev server on your Mac (auto-discovered on the same WiFi network) for **hot reload** — code changes appear on your phone instantly without rebuilding.
+
+> You only need to re-run `npx expo run:ios --device` when native dependencies change (e.g., adding a new native module). For all TypeScript/React changes, the dev server hot-reloads automatically.
+
+> **Free signing note:** The app expires every 7 days. Just re-run `npx expo run:ios --device` to re-install. This limitation goes away with a paid developer account.
+
+#### Option B — EAS Cloud Build (Requires Paid Developer Account)
+
+> **Skip this option until you have a paid Apple Developer account.** EAS cloud builds require proper code signing which needs a paid developer membership.
+
+1. Register your iPhone with EAS (handles provisioning automatically):
+   ```bash
+   eas device:create
+   ```
+   EAS prints a URL/QR code — open it on your iPhone and follow the prompt to install a configuration profile. This registers your device UDID without you needing to touch the Apple Developer Portal manually.
+2. Build the development client in the cloud:
+   ```bash
+   eas build --platform ios --profile development
+   ```
+3. When the build finishes (~10–15 min), EAS provides a direct install link. Open it on your iPhone — tap **Install** to sideload the `.ipa` without the App Store.
+4. Start the local dev server:
+   ```bash
+   npx expo start --dev-client
+   ```
+5. Open the installed app on your iPhone — it connects to your Mac's dev server for live reload.
+
+> Ad-hoc provisioning supports up to **100 registered devices** per Apple Developer account per year.
+
+#### Option C — EAS Preview Build (Requires Paid Developer Account)
+
+For testing a fully built release version (closest to what users will run):
+
+```bash
+eas build --platform ios --profile preview
+```
+
+EAS signs the build with an ad-hoc provisioning profile and provides a QR code / direct link. Any registered device can install it instantly — no Xcode, no USB cable, no App Store.
+
+#### Option D — TestFlight (Requires Paid Developer Account)
+
+TestFlight is Apple's official beta platform and does **not** require a full App Store review or public listing:
+
+1. Create the app entry in [App Store Connect](https://appstoreconnect.apple.com/) (bundle ID and name only — no screenshots, no metadata required)
+2. Build for TestFlight:
+   ```bash
+   eas build --platform ios --profile production
+   ```
+3. Submit to TestFlight:
+   ```bash
+   eas submit --platform ios
+   ```
+4. Add **Internal Testers** in App Store Connect → instant access, up to 100 testers, **no Apple review required**
+5. Testers install via the TestFlight app on their iPhone
+
+> Add External Testers (up to 10,000) if needed — these go through Apple's Beta App Review (~1–2 days), but this is a much lighter process than full App Store review.
+
+#### Which Option to Use
+
+| Situation | Apple Account Needed | Use |
+|-----------|---------------------|-----|
+| Daily development on your own iPhone (fastest) | Free Apple ID ✅ | **Option A** — Local Xcode build |
+| Can't build locally / need cloud build | Paid ($99/year) | **Option B** — EAS development build |
+| Testing release behavior / full app flow | Paid ($99/year) | **Option C** — EAS preview build |
+| Sharing with other testers, pre-launch QA | Paid ($99/year) | **Option D** — TestFlight |
+| HealthKit + APNs testing (requires physical device) | Paid ($99/year) | Any of the above |
+
+> **For your current situation:** Use **Option A** exclusively. Everything else becomes available when you enroll in the paid program.
+
+**Checklist:**
+- [ ] Connect iPhone to Mac via USB and trust the device in Xcode
+- [ ] Ensure Xcode is using your **Personal Team** (free Apple ID) for signing
+- [ ] Generate native project: `npx expo prebuild --platform ios` (in `mobile/`)
+- [ ] Build and install on device: `npx expo run:ios --device`
+- [ ] Start dev server: `npx expo start --dev-client` — verify hot reload works
+- [ ] Start Docker backend: `docker-compose up` from project root
+- [ ] Verify app connects to backend at `http://<your-mac-ip>:8000` on the same WiFi network
+- [ ] Test full app flow with seed data: signup → onboard → dashboard → chat → history → settings
+- [ ] If app expires after 7 days, re-run `npx expo run:ios --device` to re-install
+- [ ] When ready for HealthKit/APNs (after paid enrollment): rebuild with `npx expo prebuild --clean --platform ios && npx expo run:ios --device`
+
+---
+
+## Day-to-Day iPhone Development Workflow
+
+This section describes the routine for developing and testing on your physical iPhone. **You do NOT need the App Store, TestFlight, or EAS cloud builds for daily development.**
+
+### Network Setup (One-Time)
+
+Your iPhone must be able to reach both the **Expo dev server** (for hot reload) and the **FastAPI backend** (for API calls). Both run on your Mac.
+
+1. **Same WiFi network** — your iPhone and Mac must be on the same local network
+2. **Find your Mac's local IP:**
+   ```bash
+   ipconfig getifaddr en0
+   ```
+   This returns something like `192.168.1.42`. This is the IP your iPhone uses to reach the backend.
+3. **Backend URL:** Set `API_URL=http://192.168.1.42:8000` in the mobile app's environment config (see `mobile/constants/config.ts`). During development, this is your Mac's LAN IP. For production, it's the deployed backend URL.
+4. **Expo dev server** — Expo automatically handles LAN discovery. When you run `npx expo start --dev-client`, it broadcasts on the local network and the app on your iPhone finds it automatically.
+5. **iOS App Transport Security (ATS):** Development builds created via `expo-dev-client` automatically allow HTTP (non-HTTPS) connections for `localhost` and LAN IPs. No extra ATS configuration is needed for dev builds. Production builds enforce HTTPS.
+
+> **Tip:** If your Mac's IP changes (e.g., different WiFi network), update the `API_URL`. Alternatively, use `npx expo start --tunnel` which creates an ngrok tunnel — but this only tunnels the Expo dev server, not the backend. For a stable setup, consider deploying the backend to Railway and using that URL even during development.
+
+### Daily Routine
+
+```
+1. Start the backend:
+   $ docker-compose up                     # Starts Postgres + FastAPI on port 8000
+
+2. Start the Expo dev server:
+   $ cd mobile
+   $ npx expo start --dev-client           # Metro bundler + LAN broadcast
+
+3. Open the app on your iPhone:
+   - If already installed via prior local build → launch the app, it auto-connects to Metro
+   - If native code changed → rebuild: npx expo run:ios --device
+
+4. Develop:
+   - Edit TypeScript/React code → hot reload appears on phone instantly
+   - Edit native config (app.config.ts, add native module) → re-run npx expo run:ios --device
+   - Backend changes → FastAPI auto-reloads via Docker volume mount (--reload flag)
+
+5. Test HealthKit:
+   - Wear Apple Watch throughout the day → data flows to iOS Health app
+   - Open VitalView app → HealthKit sync pulls latest data → sends to backend
+   - Or manually add data: iOS Settings → Health → Browse → (select metric) → Add Data
+```
+
+### When to Rebuild the Native App
+
+You only need to re-run `npx expo run:ios --device` when:
+- Adding/removing a native dependency (e.g., new Expo module)
+- Changing `app.config.ts` values that affect the native build (entitlements, permissions, bundle ID)
+- Updating `react-native-health` or `expo-notifications` versions
+
+For all other changes (screens, components, services, styles), hot reload handles it.
 
 ---
 
@@ -197,11 +425,23 @@ Add a `refresh_tokens` table to track issued refresh tokens, enabling revocation
 
 Create an Alembic migration for this table. This also makes the NextAuth tables (`accounts`, `sessions`, `verification_tokens`) obsolete — create a migration to drop them once the web frontend is fully retired.
 
-#### Task 1.4 — Add Apple Sign-In Support (Recommended)
+#### Task 1.4 — Add Apple Sign-In Support
 
-Apple requires apps that offer third-party sign-in to also offer "Sign in with Apple." Add an endpoint:
-- `POST /auth/apple`: accepts Apple's identity token (JWT from the iOS Sign in with Apple SDK), verifies it against Apple's public keys, extracts `email` and `sub` (Apple user ID), creates or links user account, returns `{access_token, refresh_token, user}`
-- Store the Apple `sub` in a new column on users (or in a generic `oauth_accounts` table) for account linking
+Apple requires apps that offer third-party sign-in to also offer "Sign in with Apple." Implement this during migration.
+
+> **Note:** Sign in with Apple requires a paid Apple Developer account to function on-device. The backend endpoint and client-side UI will be built now, but the Sign in with Apple button will be hidden or disabled at runtime until HealthKit entitlements are active (which serves as a proxy for "paid account is configured"). Email/password auth remains the primary method during free-account development.
+
+**Backend:**
+- `POST /auth/apple`: accepts Apple's identity token (JWT from the iOS Sign in with Apple SDK), verifies it against Apple's public keys (fetched from `https://appleid.apple.com/auth/keys`), extracts `email` and `sub` (Apple user ID), creates or links user account, returns `{access_token, refresh_token, user}`
+- Store the Apple `sub` in a new column `apple_user_id VARCHAR` on the `users` table (nullable). When a user signs in with Apple, look up by `apple_user_id` first; if not found and email matches an existing account, link it; otherwise create a new account
+- Add `apple_user_id` column via Alembic migration
+- Add `PyJWT` or reuse `python-jose` to decode and verify Apple's identity token (RS256, verify `iss`, `aud`, `exp`)
+
+**Client (React Native):**
+- Use `expo-apple-authentication` package for the native Sign in with Apple button and flow
+- On successful Apple auth, send the identity token to `POST /auth/apple`
+- Handle the case where Apple only provides email on first sign-in (subsequent logins return `sub` only — the backend must store the email from the first call)
+- Show the Sign in with Apple button only when the capability is available (`AppleAuthentication.isAvailableAsync()`)
 
 ---
 
@@ -291,11 +531,91 @@ The following become unnecessary for the iOS app:
 ```bash
 npx create-expo-app@latest mobile --template expo-template-blank-typescript
 cd mobile
-npx expo install expo-router expo-secure-store expo-font
+npx expo install expo-dev-client          # Required — replaces Expo Go; enables HealthKit native module
+npx expo install expo-router expo-secure-store expo-font expo-linking expo-constants expo-status-bar
 npx expo install react-native-reanimated react-native-gesture-handler
 npx expo install react-native-safe-area-context react-native-screens
 npx expo install @react-navigation/native @react-navigation/bottom-tabs @react-navigation/native-stack
+npx expo install expo-haptics expo-notifications expo-background-fetch expo-task-manager
+npx expo install expo-apple-authentication
+npm install react-native-health
 ```
+
+**Expo Configuration (`app.config.ts`):**
+
+This file is critical — it configures HealthKit entitlements, push notifications, background modes, and the bundle identifier that Apple uses to identify your app.
+
+```typescript
+// mobile/app.config.ts
+import { ExpoConfig, ConfigContext } from "expo/config";
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: "VitalView",
+  slug: "vitalview",
+  version: "1.0.0",
+  orientation: "portrait",
+  icon: "./assets/icon.png",
+  scheme: "vitalview",  // Deep link scheme: vitalview://
+  userInterfaceStyle: "automatic",  // Supports light + dark mode
+  splash: {
+    image: "./assets/splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#0f766e",
+  },
+  ios: {
+    supportsTablet: false,
+    bundleIdentifier: "com.vitalview.app",  // Works as-is with free Apple ID signing. Change later when you register an App ID with a paid developer account.
+    buildNumber: "1",
+    infoPlist: {
+      // HealthKit privacy strings — required by Apple when HealthKit entitlements are active.
+      // These are included now so the code is ready. They have no effect until you enable
+      // HealthKit via a paid developer account.
+      NSHealthShareUsageDescription:
+        "VitalView reads your health data (sleep, heart rate variability, resting heart rate, and steps) to generate personalized weekly health debriefs and track trends over time.",
+      NSHealthUpdateUsageDescription:
+        "VitalView does not write to your health data. This permission is requested by the HealthKit framework but is not used.",
+      UIBackgroundModes: ["fetch", "remote-notification"],
+    },
+    // HealthKit + APNs entitlements — these require a paid Apple Developer account.
+    // With a free Apple ID, the app will build and run but these capabilities will be inactive.
+    // The HealthKit and push notification code paths check for availability at runtime and
+    // gracefully fall back (seed data instead of HealthKit, no push notifications).
+    entitlements: {
+      "com.apple.developer.healthkit": true,
+      "com.apple.developer.healthkit.access": ["health-records"],
+      "aps-environment": "development",  // Change to "production" for App Store builds
+    },
+    config: {
+      usesNonExemptEncryption: false,  // Avoids App Store compliance questionnaire for standard HTTPS
+    },
+  },
+  plugins: [
+    "expo-router",
+    "expo-secure-store",
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/notification-icon.png",
+        color: "#0f766e",
+      },
+    ],
+    [
+      "expo-background-fetch",
+      {
+        startOnBoot: true,
+      },
+    ],
+  ],
+  extra: {
+    eas: {
+      projectId: "your-eas-project-id",  // ← Set after running eas build:configure
+    },
+  },
+});
+```
+
+> **Bundle identifier:** `com.vitalview.app` works out of the box with free Apple ID signing. When you later enroll in the paid Apple Developer Program and create a registered App ID, update this to match (e.g., `com.yourdomain.vitalview`). HealthKit entitlements require the bundle ID to match a registered App ID.
 
 **Project structure:**
 ```
@@ -343,7 +663,7 @@ mobile/
 │   └── useApi.ts
 ├── constants/
 │   ├── colors.ts                 # Theme colors (port from CSS vars)
-│   └── config.ts                 # API_URL, etc.
+│   └── config.ts                 # API_URL, environment detection
 ├── app.json                      # Expo config
 ├── eas.json                      # EAS Build config
 ├── package.json
@@ -375,7 +695,19 @@ Login/Signup → POST /auth/login or /auth/signup
 **Port:** `frontend/lib/api.ts` → `mobile/services/api.ts`
 
 **Changes:**
-- Base URL: `/api/` → `https://your-api.railway.app/` (or env variable `API_URL`)
+- Base URL: `/api/` → value from `constants/config.ts` which resolves the backend URL per environment:
+  ```typescript
+  // mobile/constants/config.ts
+  import Constants from "expo-constants";
+
+  // In development, the backend runs on your Mac via Docker.
+  // Your iPhone reaches it via the Mac's LAN IP on the same WiFi network.
+  // In production, this is the deployed backend URL.
+  const DEV_API_URL = "http://192.168.1.42:8000";  // ← Replace with your Mac's IP (run: ipconfig getifaddr en0)
+  const PROD_API_URL = "https://your-api.railway.app";
+
+  export const API_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
+  ```
 - Auth: remove implicit cookie auth → add `Authorization: Bearer <token>` header
 - Add token refresh interceptor (on 401, refresh and retry)
 - All TypeScript interfaces (`Metric`, `Debrief`, `ChatSession`, etc.) carry over unchanged
@@ -648,7 +980,7 @@ Remove any frontend services. Keep only:
 - PostgreSQL
 - FastAPI backend (for local development)
 
-The mobile app runs via `npx expo start` on the developer's machine, connecting to `http://localhost:8000`.
+The mobile app runs via `npx expo start --dev-client` on the developer's machine. The React Native app connects to the FastAPI backend via the Mac's **local network IP** (e.g., `http://192.168.x.x:8000`), NOT `localhost` — because `localhost` on a physical iPhone refers to the phone itself, not the Mac. See the "Day-to-Day iPhone Development Workflow" section for network setup details.
 
 #### Task 6.3 — Update Project Structure
 
@@ -669,11 +1001,11 @@ The mobile app runs via `npx expo start` on the developer's machine, connecting 
 
 ```
 Phase 1 (Backend Auth)           ← Do first, enables all other phases
-  ↓
+  ↓                                Includes Sign in with Apple backend endpoint
 Phase 2 (HealthKit)              ← Can start in parallel with Phase 3
   ↓                                (HealthKit is a service, not UI)
 Phase 3 (React Native Frontend)  ← Largest phase, most work
-  ↓
+  ↓                                ALL screens testable on iPhone with free Apple ID + seed data
 Phase 4 (Push Notifications)     ← Depends on Phase 3 (needs mobile app)
   ↓
 Phase 5 (Backend Cleanup)        ← Do after mobile app is working
@@ -683,6 +1015,25 @@ Phase 6 (Archive Web)            ← Final cleanup
 
 **Critical path:** Phase 1 → Phase 3 → Phase 4 → ship
 **Parallel path:** Phase 2 can happen alongside Phase 3
+
+### Free Apple ID vs. Paid Developer Account — What's Testable When
+
+| Feature | Free Apple ID | After Paid Enrollment |
+|---------|:------------:|:--------------------:|
+| App runs on iPhone | ✅ | ✅ |
+| Auth (email/password, JWT) | ✅ | ✅ |
+| All screens (dashboard, chat, history, settings) | ✅ | ✅ |
+| Backend API calls | ✅ | ✅ |
+| Seed/demo data | ✅ | ✅ |
+| Onboarding wizard (non-HealthKit steps) | ✅ | ✅ |
+| Dark mode, haptics, navigation | ✅ | ✅ |
+| Hot reload | ✅ | ✅ |
+| HealthKit data sync | ❌ | ✅ |
+| Sign in with Apple | ❌ | ✅ |
+| Push notifications (APNs) | ❌ | ✅ |
+| TestFlight / App Store | ❌ | ✅ |
+| EAS cloud builds | ❌ | ✅ |
+| App valid beyond 7 days without re-install | ❌ | ✅ |
 
 ---
 
@@ -699,6 +1050,10 @@ Phase 6 (Archive Web)            ← Final cleanup
 - [ ] Register auth router in `backend/app/main.py`
 - [ ] Test: signup → receive tokens → use access token for API calls → refresh token → verify protected endpoints reject invalid tokens
 - [ ] Add `POST /auth/apple` endpoint for Sign in with Apple (verify Apple identity token, create/link user)
+- [ ] Add `apple_user_id` column to `users` table via Alembic migration
+- [ ] Install `expo-apple-authentication` in mobile project
+- [ ] Create Sign in with Apple button component (conditionally shown based on `AppleAuthentication.isAvailableAsync()`)
+- [ ] Wire Apple auth flow: native dialog → identity token → `POST /auth/apple` → store tokens
 
 ### Phase 2: HealthKit Integration
 - [ ] Install `react-native-health` or equivalent Expo-compatible HealthKit package
@@ -714,6 +1069,10 @@ Phase 6 (Archive Web)            ← Final cleanup
 
 ### Phase 3: React Native Frontend
 - [ ] Initialize Expo project with TypeScript template
+- [ ] Install `expo-dev-client`: `npx expo install expo-dev-client` (required — Expo Go does not support `react-native-health` or any custom native module)
+- [ ] Create `app.config.ts` with HealthKit entitlements, push notification config, background modes, and bundle identifier (see Task 3.1 for full config)
+- [ ] Create `eas.json` with `development` (internal), `preview` (internal), and `production` (store) profiles (see Expo/EAS Setup section)
+- [ ] Build dev client locally: `npx expo prebuild --platform ios && npx expo run:ios --device` — verify app installs on your iPhone
 - [ ] Install core dependencies: expo-router, expo-secure-store, react-native-reanimated, react-native-gesture-handler, react-native-safe-area-context, react-native-screens
 - [ ] Install UI dependencies: @gorhom/bottom-sheet, react-native-toast-message, victory-native, @react-native-picker/picker
 - [ ] Install NativeWind (Tailwind for RN) + nativewind config
@@ -738,7 +1097,9 @@ Phase 6 (Archive Web)            ← Final cleanup
 - [ ] Add pull-to-refresh on Dashboard and History
 - [ ] Add haptic feedback on interactions (expo-haptics)
 - [ ] Implement dark mode via useColorScheme + theme context
-- [ ] Test full flow: signup → onboard → HealthKit sync → dashboard → chat → history → settings
+- [ ] Configure `mobile/constants/config.ts` with Mac's LAN IP for dev API_URL (see Task 3.3)
+- [ ] Test full flow on physical iPhone with seed data: signup → onboard → dashboard (seed data) → chat → history → settings
+- [ ] Verify HealthKit/Sign in with Apple UI elements are hidden or disabled gracefully when entitlements are unavailable
 
 ### Phase 4: Push Notifications
 - [ ] Install `expo-notifications`
@@ -780,6 +1141,7 @@ aioapns                      # Apple Push Notification service client
 ### Mobile (new `package.json`)
 ```
 expo                         # Expo framework
+expo-dev-client              # Custom development build (replaces Expo Go — required for react-native-health)
 expo-router                  # File-based routing
 expo-secure-store            # iOS Keychain token storage
 expo-notifications           # Push notifications
@@ -787,6 +1149,7 @@ expo-background-fetch        # Background HealthKit sync
 expo-haptics                 # Haptic feedback
 expo-font                    # Custom fonts
 expo-linking                 # Deep linking
+expo-apple-authentication    # Sign in with Apple native SDK
 react-native-health          # HealthKit bridge
 @react-navigation/native     # Navigation
 @react-navigation/bottom-tabs
