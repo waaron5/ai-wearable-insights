@@ -1,13 +1,10 @@
-"""SQLAlchemy ORM models -- all 16 tables.
+"""SQLAlchemy ORM models -- 13 app tables.
 
-13 app tables:
   users, data_sources, health_metrics, weekly_debriefs,
   chat_sessions, chat_messages, debrief_feedback, user_baselines,
   survey_questions, survey_responses,
-  anonymous_profiles, anonymous_survey_data, anonymous_health_data
-
-3 NextAuth tables:
-  accounts, sessions, verification_tokens
+  anonymous_profiles, anonymous_survey_data, anonymous_health_data,
+  refresh_tokens
 """
 
 import uuid
@@ -60,10 +57,6 @@ class User(Base):
 
     # Apple Sign-In
     apple_user_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
-
-    # NextAuth-managed columns
-    emailVerified: Mapped[datetime | None] = mapped_column("emailVerified", DateTime)
-    image: Mapped[str | None] = mapped_column(String(2048))
 
     # App-specific columns
     timezone: Mapped[str] = mapped_column(String(64), server_default="America/New_York")
@@ -324,45 +317,3 @@ class AnonymousHealthData(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     profile = relationship("AnonymousProfile", back_populates="health_data")
-
-
-# ===========================================================================
-# NEXTAUTH TABLES
-# ===========================================================================
-
-
-class NextAuthAccount(Base):
-    """NextAuth `accounts` table -- matches @auth/pg-adapter schema."""
-    __tablename__ = "accounts"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
-    userId: Mapped[uuid.UUID] = mapped_column("userId", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    type: Mapped[str] = mapped_column(String(255), nullable=False)
-    provider: Mapped[str] = mapped_column(String(255), nullable=False)
-    providerAccountId: Mapped[str] = mapped_column("providerAccountId", String(255), nullable=False)
-    refresh_token: Mapped[str | None] = mapped_column(Text)
-    access_token: Mapped[str | None] = mapped_column(Text)
-    expires_at: Mapped[int | None] = mapped_column(Integer)
-    token_type: Mapped[str | None] = mapped_column(String(255))
-    scope: Mapped[str | None] = mapped_column(String(255))
-    id_token: Mapped[str | None] = mapped_column(Text)
-    session_state: Mapped[str | None] = mapped_column(String(255))
-
-
-class NextAuthSession(Base):
-    """NextAuth `sessions` table -- matches @auth/pg-adapter schema."""
-    __tablename__ = "sessions"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
-    sessionToken: Mapped[str] = mapped_column("sessionToken", String(255), unique=True, nullable=False)
-    userId: Mapped[uuid.UUID] = mapped_column("userId", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    expires: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-
-class NextAuthVerificationToken(Base):
-    """NextAuth `verification_tokens` table -- matches @auth/pg-adapter schema."""
-    __tablename__ = "verification_tokens"
-
-    identifier: Mapped[str] = mapped_column(String(255), primary_key=True)
-    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    expires: Mapped[datetime] = mapped_column(DateTime, nullable=False)

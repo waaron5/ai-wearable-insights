@@ -16,10 +16,7 @@ class Settings(BaseSettings):
     # Email
     RESEND_API_KEY: str = ""
 
-    # Auth – shared secret with Next.js proxy (legacy, kept for backward compat)
-    API_SECRET_KEY: str = ""
-
-    # JWT auth (primary auth for mobile app)
+    # JWT auth
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
