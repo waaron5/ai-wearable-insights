@@ -49,14 +49,21 @@ const permissions: HealthKitPermissions = {
  * Check if HealthKit is available on this device.
  * Returns false on simulators, Android, and devices without HealthKit.
  */
-export function isHealthKitAvailable(): boolean {
-  if (Platform.OS !== "ios") return false;
+export function isHealthKitAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (Platform.OS !== "ios") {
+      resolve(false);
+      return;
+    }
 
-  let available = false;
-  AppleHealthKit.isAvailable((err: any, result: boolean) => {
-    if (!err) available = result;
+    AppleHealthKit.isAvailable((err: any, result: boolean) => {
+      if (err) {
+        resolve(false);
+        return;
+      }
+      resolve(Boolean(result));
+    });
   });
-  return available;
 }
 
 /**

@@ -6,6 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "bash ./scripts/run-ios.sh",
+    "ios:clean": "bash ./scripts/clean-ios.sh",
+    "ios:demo": "bash ./scripts/run-ios.sh --configuration Release",
     "web": "expo start --web"
   },
   "dependencies": {

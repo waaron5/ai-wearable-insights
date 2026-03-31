@@ -65,6 +65,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const segments = useSegments();
+  const maybeRegisterPushNotifications = useCallback(() => {
+    if (__DEV__) return;
+    registerForPushNotifications().catch(console.warn);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Bootstrap: check for existing tokens on mount
@@ -76,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentUser);
         // Re-register push token on each app launch for logged-in users
         if (currentUser?.onboarded_at) {
-          registerForPushNotifications().catch(console.warn);
+          maybeRegisterPushNotifications();
         }
       } catch {
         setUser(null);
@@ -84,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [maybeRegisterPushNotifications]);
 
   // ---------------------------------------------------------------------------
   // Navigation guard: redirect based on auth state
@@ -115,17 +119,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await authLogin(email, password);
     const currentUser = await fetchCurrentUser();
     setUser(currentUser);
-    registerForPushNotifications().catch(console.warn);
-  }, []);
+    maybeRegisterPushNotifications();
+  }, [maybeRegisterPushNotifications]);
 
   const signup = useCallback(
     async (name: string, email: string, password: string) => {
       await authSignup(name, email, password);
       const currentUser = await fetchCurrentUser();
       setUser(currentUser);
-      registerForPushNotifications().catch(console.warn);
+      maybeRegisterPushNotifications();
     },
-    []
+    [maybeRegisterPushNotifications]
   );
 
   const appleSignIn = useCallback(
@@ -136,9 +140,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await authAppleSignIn(identityToken, fullName);
       const currentUser = await fetchCurrentUser();
       setUser(currentUser);
-      registerForPushNotifications().catch(console.warn);
+      maybeRegisterPushNotifications();
     },
-    []
+    [maybeRegisterPushNotifications]
   );
 
   const logout = useCallback(async () => {

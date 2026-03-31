@@ -7,11 +7,16 @@
  * To find your Mac's IP: run `ipconfig getifaddr en0` in Terminal.
  */
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
-// Development API URL. Set via environment variable or defaults to 10.0.2.2 (simulator localhost).
-// For physical device or custom Mac IP, set DEV_API_URL env var.
-// To find your Mac's LAN IP: run `ipconfig getifaddr en0` in Terminal
-const DEV_API_URL = Constants.expoConfig?.extra?.devApiUrl || "http://10.0.2.2:8000";
+// Development API URL:
+// - iOS simulator: localhost points to your Mac (where backend usually runs)
+// - Android emulator: 10.0.2.2 maps to host localhost
+// - Physical device: set `extra.devApiUrl` to your Mac's LAN IP (e.g. http://192.168.1.20:8000)
+const DEFAULT_DEV_API_URL =
+  Platform.OS === "ios" ? "http://127.0.0.1:8000" : "http://10.0.2.2:8000";
+const DEV_API_URL =
+  Constants.expoConfig?.extra?.devApiUrl || DEFAULT_DEV_API_URL;
 const PROD_API_URL = "https://your-api.railway.app";
 
 export const API_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;

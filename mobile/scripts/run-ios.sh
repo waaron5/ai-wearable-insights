@@ -8,6 +8,7 @@ SCHEME_NAME="VitalView"
 DERIVED_DATA_PATH="$IOS_DIR/build"
 CONFIGURATION="Debug"
 SIMULATOR_NAME=""
+APP_BUNDLE_ID=""
 
 # Ensure user-installed gem executables are discoverable.
 if command -v ruby >/dev/null 2>&1; then
@@ -19,7 +20,7 @@ fi
 export RUBYOPT="${RUBYOPT:+$RUBYOPT }-rlogger"
 
 usage() {
-  echo "Usage: npm run ios -- [--simulator <name>] [--configuration <Debug|Release>]"
+  echo "Usage: npm run ios -- [--simulator <name>] [--configuration <Debug|Release>] [--bundle-id <id>]"
 }
 
 find_simulator_udid_by_name() {
@@ -52,6 +53,18 @@ find_default_simulator_udid() {
     head -n 1
 }
 
+detect_bundle_id() {
+  awk '
+    /PRODUCT_BUNDLE_IDENTIFIER = / {
+      gsub(/.*= /, "", $0)
+      gsub(/;.*/, "", $0)
+      gsub(/[[:space:]]/, "", $0)
+      print $0
+      exit
+    }
+  ' "$IOS_DIR/VitalView.xcodeproj/project.pbxproj"
+}
+
 simulator_name_from_udid() {
   local simulator_udid="$1"
 
@@ -78,15 +91,15 @@ ensure_pods_are_synced() {
 
 ensure_metro_running() {
   # Check if Metro process is running and responding
-  if pgrep -f "expo start.*--dev-client" >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8081/status >/dev/null 2>&1; then
+  if pgrep -f "expo start.*--dev-client.*--port 8081" >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8081/status >/dev/null 2>&1; then
     echo "Metro already running on port 8081"
     return
   fi
   
   # Kill any stale Metro processes to prevent port conflicts
-  if pgrep -f "expo start.*--dev-client" >/dev/null 2>&1; then
+  if pgrep -f "expo start.*--dev-client.*--port 8081" >/dev/null 2>&1; then
     echo "Cleaning up stale Metro process..."
-    pkill -f "expo start.*--dev-client"
+    pkill -f "expo start.*--dev-client.*--port 8081"
     sleep 2
   fi
 
@@ -96,7 +109,7 @@ ensure_metro_running() {
   echo "Starting Metro in the background..."
   (
     cd "$PROJECT_ROOT"
-    nohup npx expo start --dev-client --port 8081 >"$metro_log_path" 2>&1 &
+    nohup npx expo start --dev-client --port 8081 --host localhost --non-interactive >"$metro_log_path" 2>&1 &
   )
 
   for _ in $(seq 1 60); do
@@ -132,6 +145,14 @@ while [[ $# -gt 0 ]]; do
       CONFIGURATION="$2"
       shift 2
       ;;
+    --bundle-id)
+      if [[ $# -lt 2 ]]; then
+        usage
+        exit 1
+      fi
+      APP_BUNDLE_ID="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -143,6 +164,18 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$APP_BUNDLE_ID" ]]; then
+  APP_BUNDLE_ID="$(detect_bundle_id || true)"
+fi
+
+if [[ -z "$APP_BUNDLE_ID" ]]; then
+  echo ""
+  echo "Unable to determine app bundle identifier."
+  echo "Pass it explicitly: npm run ios -- --bundle-id com.example.app"
+  echo ""
+  exit 1
+fi
 
 # Xcode tools can be installed but still unusable until license is accepted.
 if ! xcrun simctl list devices >/dev/null 2>&1; then

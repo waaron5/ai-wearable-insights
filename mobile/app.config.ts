@@ -1,5 +1,7 @@
 import { ExpoConfig, ConfigContext } from "expo/config";
 
+const devApiUrl = process.env.DEV_API_URL;
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "VitalView",
@@ -44,7 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-notifications",
       {
-        icon: "./assets/notification-icon.png",
+        icon: "./assets/icon.png",
         color: "#0f766e",
       },
     ],
@@ -56,6 +58,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
   ],
   extra: {
+    devApiUrl,
     eas: {
       projectId: "your-eas-project-id",
     },

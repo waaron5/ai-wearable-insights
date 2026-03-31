@@ -20,6 +20,8 @@ function NotificationSetup() {
 
 export default function RootLayout() {
   useEffect(() => {
+    if (__DEV__) return;
+
     // Register background HealthKit sync on app start
     registerBackgroundSync().catch(console.warn);
   }, []);
@@ -27,7 +29,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
-        <NotificationSetup />
+        {!__DEV__ ? <NotificationSetup /> : null}
         <StatusBar style="auto" />
         <Slot />
       </AuthProvider>

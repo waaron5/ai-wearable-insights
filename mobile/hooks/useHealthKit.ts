@@ -56,7 +56,7 @@ export function useHealthKit(): UseHealthKitReturn {
     if (Platform.OS !== "ios") return;
 
     (async () => {
-      const available = isHealthKitAvailable();
+      const available = await isHealthKitAvailable();
       const lastSync = await getLastSyncDate();
       const initialDone = await hasCompletedInitialSync();
 
